@@ -67,7 +67,7 @@ attribute_pointer:
     db #90, #ff
 
 ; This is the main painting routine, which is called 50 times per second by the interrupt on screen refresh
-; By the time we get here, we have already spect 10 T-states from the jump from the interrupt entry point
+; By the time we get here, we have already spent 10 T-states from the jump from the interrupt entry point
 interrupt_routine:
     ; Save contents of main registers and shadow registers to the stack
     push af
@@ -117,15 +117,20 @@ end_of_coloured_area_offset EQU 26
     ; Now we pause for some cycles so the pixel beam is in the right area
     ex af, af'        ; 4
     exx               ; 4
+    ; set the number of scanlines to skip
     ld a, #3e         ; 7
-set_delay:
-    ld b, #0f         ; 7 * 62 = 434
+
+; This routine takes a total of 224 T-states each cycle, equivalent to one scanline on a 48K machine
+scanline_delay:
+    ld b, #0f              ; 7 * 62 = 434
 delay:
-    djnz delay        ; (14 * 13 + 8) * 62 = 11780
-    and #ff           ; 7 * 62 = 434
-    inc hl            ; 6 * 62 = 372
-    dec a             ; 4 * 62 = 248
-    jp nz, set_delay  ; 10 * 62 = 620
+    djnz delay             ; (14 * 13 + 8) * 62 = 11780
+    and #ff                ; 7 * 62 = 434
+    inc hl                 ; 6 * 62 = 372
+    dec a                  ; 4 * 62 = 248
+    jp nz, scanline_delay  ; 10 * 62 = 620
+    ; --> 224 T-states to here each cycle
+
     nop               ; 4
     nop               ; 4
     ; 13911 T-states, 14131 total
