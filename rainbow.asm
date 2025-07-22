@@ -67,7 +67,9 @@ attribute_pointer:
     db #90, #ff
 
 ; This is the main painting routine, which is called 50 times per second by the interrupt on screen refresh
-; By the time we get here, we have already spent 10 T-states from the jump from the interrupt entry point
+; By the time we get here, we have already spent 19 T-states getting to the interrupt entry point
+; and 10 T-states from the jump from the interrupt routine. There may be extra T-states if the Z80 was busy
+; when the interrupt fired, as the currently executed instruction is completed first!
 interrupt_routine:
     ; Save contents of main registers and shadow registers to the stack
     push af
@@ -80,18 +82,18 @@ interrupt_routine:
     push hl
     push de
     push bc
-    ; 96 T-states, 106 total
+    ; 96 T-states, 125 total
 
     ; The stack pointer will be (ab)used for colouring the screen, so save the original
     ld (interrupt_exit + 1), sp
-    ; 20 T-states, 126 total
+    ; 20 T-states, 145 total
 
     ; Only continue if there is between 1 - 192 (?193???) pixel lines set
     ld a, (pixel_lines)
     dec a
     cp #c0
     jr nc, interrupt_exit
-    ; 31 T-states, 157 total
+    ; 31 T-states, 176 total
 
     ; Shadow A will have number of pixel lines
     ; Shadow C will have the same
@@ -99,7 +101,7 @@ interrupt_routine:
     inc a
     ld c, a
     ld de, (attribute_pointer)
-    ; 28 T-states, 185 total
+    ; 28 T-states, 204 total
 
     ; Main HL will have start point for painting
     ; Main DE will have line width
@@ -112,7 +114,7 @@ end_of_coloured_area_offset EQU 26
     ld hl, screen_attribute_area - line_width + end_of_coloured_area_offset
     ld de, line_width
     ld a, %00000001
-    ; 35 T-states, 220 total
+    ; 35 T-states, 239 total
 
     ; Now we pause for some cycles so the pixel beam is in the right area
     ex af, af'        ; 4
@@ -133,7 +135,7 @@ delay:
 
     nop               ; 4
     nop               ; 4
-    ; 13911 T-states, 14131 total
+    ; 13911 T-states, 14150 total
 
 ; On a 48K Spectrum, there are 224 T-states/scanline, 312 scanlines/frame and 64 scanlines before picture (14336)
 ; On a 128K Spectrum, there are 228 T-states/scanline, 311 scanlines/frame and 63 scanlines before picture (14364)
@@ -146,20 +148,21 @@ paint:
     ; Remember a single bit is set in A at this point.
     ; This will count 8 pixel lines = 1 attribute block line,
     rrca
-    ; 27 T-states, 14158 total
+    ; 27 T-states, 14177 total
 
     jp nc, continue_block
     ; we are at the top line of an attribute block
     add hl, de
     jp colour_line
-    ; 31 T-states if this path is taken, 14189 total
+    ; 31 T-states if this path is taken, 14208 total
 
 ; This path just wastes a few cycles doing busywork to keep everything in sync
 continue_block:
     ld b, (hl)
     ld b, (hl)
     ld b, (hl)
-    ; 31 T-states if this path is taken, 14189 total
+    ; 31 T-states minimum if this path is taken, 14208 total
+    ; But each LD can take up to 6 T-states longer as it is reading from contended RAM
 
 ; Finally we set the stack pointer to the end of the attribute line we are going to colour,
 ; and set them tight-to-left by throwing 2-byte words onto the stack (which grows down in memory).
@@ -170,7 +173,7 @@ colour_line:
     ld b, c
     ; Stack pointer to end of the coloured section of the attribute block line.
     ld sp, hl
-    ; 10 T-states, 14199 total
+    ; 10 T-states, 14218 total
 
     ; Paint the block.
     push bc
@@ -183,7 +186,9 @@ colour_line:
     push bc
     push bc
     push bc
-    ; 110 T-states, 14309 total
+    ; 110 T-states, 14328 total first time round
+    ; subsequent paints can be longer, as the scanline is in the PAPER area and
+    ; contention can delay each PUSH by up to an extra 6 T-states
 
     ; Allow the scanline to finish and circle around for the next one.
     nop
@@ -194,7 +199,18 @@ colour_line:
     dec c
     jp nz, paint
     ; 34 T-states
-    ; 212 T-states total for this routine
+    ; 212 T-states total for this routine if no contention
+
+    ; Allowing for contention is tricky (and may be imprecise due to issues like late
+    ; ULA timings on warming up, different ULA models and different delays in starting
+    ; the interrupt service routine depending on the instruction being executed when the
+    ; interrupt is triggered). There will be a bit of "self correction" in the way this
+    ; has been written.
+    ;
+    ; All of that is a bit beyond me, so I simply ran this in an emulator and took the mean of
+    ; the results. The average was about 223.9 T-states/cycle of the "paint" routine.
+    ;
+    ; Conclusion: Dominic Robinson is much smarter than me!
 
 ; Tidy up all the registers and reset the stack pointer
 interrupt_exit:
