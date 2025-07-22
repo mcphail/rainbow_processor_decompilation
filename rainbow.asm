@@ -22,6 +22,7 @@ origin EQU #c001
 ; The "attribute_pointer" address and the next one should then be POKEd with a memory location of a list of attribute values for each line.
 ; Ensure the attribute list does not cross a memory page boundary. The routine will wrap around at the end of a page.
 ; Finally, POKE a value from 1 - 192 at the "pixel_lines" with the number of pixel lines you want to colour, from the top of the screen.
+; You probably want that to be a multiple of 8, to avoid attribute clash.
 ; To stop the routine, POKE a value beyond 1 - 192 to the "pixel_lines" address.
 init:
     ; Disable the interrupt handler and set the address of our interrupt vector table
@@ -248,5 +249,8 @@ attrs:
     SLDOPT COMMENT WPMEM, LOGPOINT, ASSERTION
     SAVESNA "myprog.sna", start
 
+    ; Note: the original listing had a bug, where the code was saved as 145 bytes. This truncated the low order byte (#00) from the final `jp #0038` instruction.
+    ; This wouldn't cause a problem unless more machine code was loaded immediately after it in memory, as the address would have been initialised to #00 anyway.
+    ; We'll save it as 146 bytes to fix the bug.
     EMPTYTAP "rainbow_code.tap"
     SAVETAP "rainbow_code.tap", CODE, "democode", origin, 146
